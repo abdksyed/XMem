@@ -64,6 +64,10 @@ class MainToGroupDistributor(nn.Module):
         self.reverse_order = reverse_order
 
     def forward(self, x, g):
+        """
+        x: batch, channels, H, W
+        g: batch, num_objects, channels, H, W
+        """
         num_objects = g.shape[1]
 
         if self.x_transform is not None:
@@ -73,6 +77,8 @@ class MainToGroupDistributor(nn.Module):
             if self.reverse_order:
                 g = torch.cat([g, x.unsqueeze(1).expand(-1,num_objects,-1,-1,-1)], 2)
             else:
+                # x: batch, `num_objects`, channels-1, H, W <-> g: batch, num_objects, channels-2, H, W
+                # g: batch, num_objects, channels-1+channels-2, H, W
                 g = torch.cat([x.unsqueeze(1).expand(-1,num_objects,-1,-1,-1), g], 2)
         elif self.method == 'add':
             g = x.unsqueeze(1).expand(-1,num_objects,-1,-1,-1) + g

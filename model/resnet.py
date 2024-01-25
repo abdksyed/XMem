@@ -34,8 +34,8 @@ def load_weights_add_extra_dim(target, source_state, extra_dim=1):
 
 model_urls = {
     'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth',
-    # 'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth', # ImageNet ResNet50
-    'resnet50': 'https://s3.unistra.fr/camma_public/github/selfsupsurg/models/model_final_checkpoint_dino_surg.torch', # DINO ResNet50 CAMMA SelfSupSurg
+    'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth', # ImageNet ResNet50
+    # 'resnet50': 'https://s3.unistra.fr/camma_public/github/selfsupsurg/models/model_final_checkpoint_dino_surg.torch', # DINO ResNet50 CAMMA SelfSupSurg
 }
 
 

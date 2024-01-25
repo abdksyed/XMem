@@ -8,7 +8,7 @@ from torchvision.transforms import InterpolationMode
 from PIL import Image
 import numpy as np
 
-from dataset.range_transform import im_normalization, im_mean
+from dataset.range_transform import im_normalization, im_mean # im_mean is (124, 116, 104)
 from dataset.reseed import reseed
 
 
@@ -23,23 +23,23 @@ class VOSDataset(Dataset):
     - The distance between frames is controlled
     """
     def __init__(self, im_root, gt_root, max_jump, is_bl, subset=None, num_frames=3, max_num_obj=3, finetune=False):
-        self.im_root = im_root
-        self.gt_root = gt_root
-        self.max_jump = max_jump
-        self.is_bl = is_bl
-        self.num_frames = num_frames
-        self.max_num_obj = max_num_obj
+        self.im_root = im_root # Videos Root Directory
+        self.gt_root = gt_root # Ground Truth Root Directory
+        self.max_jump = max_jump # Maximum distance between frames, used when sampling
+        self.is_bl = is_bl # Whether this is the blender dataset
+        self.num_frames = num_frames # Number of frames to sample
+        self.max_num_obj = max_num_obj # Maximum number of objects to consider in a frame???
 
         self.videos = []
         self.frames = {}
 
-        vid_list = sorted(os.listdir(self.im_root))
+        vid_list = sorted(os.listdir(self.im_root)) # List of video names
         # Pre-filtering
         for vid in vid_list:
             if subset is not None:
-                if vid not in subset:
+                if vid not in subset: # If the video is not in the subset, skip it
                     continue
-            frames = sorted(os.listdir(os.path.join(self.im_root, vid)))
+            frames = sorted(os.listdir(os.path.join(self.im_root, vid))) # Sorted list of frames in the video
             if len(frames) < num_frames:
                 continue
             self.frames[vid] = frames
@@ -108,19 +108,30 @@ class VOSDataset(Dataset):
             info['frames'] = [] # Appended with actual frames
 
             num_frames = self.num_frames
-            length = len(frames)
-            this_max_jump = min(len(frames), self.max_jump)
+            length = len(frames) # eg: 20
+            this_max_jump = min(length, self.max_jump) # eg: 3
 
             # iterative sampling
-            frames_idx = [np.random.randint(length)]
+            frames_idx = [np.random.randint(length)] # Randomly pick a frame eg: 14
+            # A->max(0, frames_idx[-1]-this_max_jump): maximum of `0`` or the value of `frames_idx[-1] - this_max_jump`
+            # B->min(length, frames_idx[-1]+this_max_jump+1): minimum of `length`` or the value of `frames_idx[-1] + this_max_jump + 1`
+            # X->set(range(A,B)): set of numbers starting from A to B (not including B). 
+            # Y->set(frames_idx): set of numbers in frames_idx
+            # X.difference(Y): Number in X but not in Y 
+            # eg: range(11, 17).difference(set(14)) = set(11, 12, 13, 15, 16)
             acceptable_set = set(range(max(0, frames_idx[-1]-this_max_jump), min(length, frames_idx[-1]+this_max_jump+1))).difference(set(frames_idx))
+            # This basically makes sure that, the frames selected are between 
+            # `-max_jump` and `+max_jump` from any of the frames in frames_idx
             while(len(frames_idx) < num_frames):
-                idx = np.random.choice(list(acceptable_set))
-                frames_idx.append(idx)
+                idx = np.random.choice(list(acceptable_set)) # eg: 15
+                frames_idx.append(idx) # eg: [14, 15]
+                # eg: set(range(12, 18))
                 new_set = set(range(max(0, frames_idx[-1]-this_max_jump), min(length, frames_idx[-1]+this_max_jump+1)))
-                acceptable_set = acceptable_set.union(new_set).difference(set(frames_idx))
+                # eg: set(11, 12, 13, 15, 16, 17).union(set(12,13,14,15,16,17)) -> set(11, 12, 13, 14, 15, 16, 17)
+                # set(11, 12, 13, 14, 15, 16, 17).difference(set(14, 15)) = set(11, 12, 13, 16, 17)
+                acceptable_set = acceptable_set.union(new_set).difference(set(frames_idx)) 
 
-            frames_idx = sorted(frames_idx)
+            frames_idx = sorted(frames_idx) # sort the frames
             if np.random.rand() < 0.5:
                 # Reverse time
                 frames_idx = frames_idx[::-1]
@@ -155,11 +166,11 @@ class VOSDataset(Dataset):
                 images.append(this_im)
                 masks.append(this_gt)
 
-            images = torch.stack(images, 0)
+            images = torch.stack(images, 0) # (num_frames, 3, 384, 384)
 
-            labels = np.unique(masks[0])
+            labels = np.unique(masks[0]) # e.g: [0,1,2,6,9]
             # Remove background
-            labels = labels[labels!=0]
+            labels = labels[labels!=0] # e.g: [1,2,6,9]
 
             if self.is_bl:
                 # Find large enough labels
@@ -187,16 +198,16 @@ class VOSDataset(Dataset):
 
         info['num_objects'] = max(1, len(target_objects))
 
-        masks = np.stack(masks, 0)
+        masks = np.stack(masks, 0) # (num_frames, 384, 384)
 
         # Generate one-hot ground-truth
         cls_gt = np.zeros((self.num_frames, 384, 384), dtype=np.int64)
         first_frame_gt = np.zeros((1, self.max_num_obj, 384, 384), dtype=np.int64)
         for i, l in enumerate(target_objects):
-            this_mask = (masks==l)
-            cls_gt[this_mask] = i+1
-            first_frame_gt[0,i] = (this_mask[0])
-        cls_gt = np.expand_dims(cls_gt, 1)
+            this_mask = (masks==l) # for all frames, get the mask in each frame corresponding to the object `l`
+            cls_gt[this_mask] = i+1 # coverting labels from unordered labels to 1,2,...,len(target_objects)
+            first_frame_gt[0,i] = (this_mask[0]) # get the mask of the first frame for the object `l`
+        cls_gt = np.expand_dims(cls_gt, 1) # (num_frames, 1, 384, 384)
 
         # 1 if object exist, 0 otherwise
         selector = [1 if i < info['num_objects'] else 0 for i in range(self.max_num_obj)]

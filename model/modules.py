@@ -14,7 +14,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from model.group_modules import *
+from model.group_modules import MainToGroupDistributor, GConv2D, GroupResBlock, upsample_groups, downsample_groups
 from model import resnet
 from model.cbam import CBAM
 
@@ -39,7 +39,6 @@ class FeatureFusionBlock(nn.Module):
         g = self.block2(g+r)
 
         return g
-
 
 class HiddenUpdater(nn.Module):
     # Used in the decoder, multi-scale feature + GRU
@@ -105,14 +104,14 @@ class ValueEncoder(nn.Module):
         
         self.single_object = single_object
         network = resnet.resnet18(pretrained=True, extra_dim=1 if single_object else 2)
-        self.conv1 = network.conv1
+        self.conv1 = network.conv1 # H*W*3 -> H/2 * W/2* 64
         self.bn1 = network.bn1
-        self.relu = network.relu  # 1/2, 64
-        self.maxpool = network.maxpool
+        self.relu = network.relu 
+        self.maxpool = network.maxpool # H/2 * W/2 * 64 -> H/4 * W/4 * 64
 
-        self.layer1 = network.layer1 # 1/4, 64
-        self.layer2 = network.layer2 # 1/8, 128
-        self.layer3 = network.layer3 # 1/16, 256
+        self.layer1 = network.layer1 # H/4 * W/4 * 64 -> H/4 * W/4 * 64
+        self.layer2 = network.layer2 # H/4 * W/4 * 64 -> H/8 * W/8 * 128
+        self.layer3 = network.layer3 # H/8 * W/8 * 128 -> H/16 * W/16 * 256
 
         self.distributor = MainToGroupDistributor()
         self.fuser = FeatureFusionBlock(1024, 256, value_dim, value_dim)
@@ -122,15 +121,22 @@ class ValueEncoder(nn.Module):
             self.hidden_reinforce = None
 
     def forward(self, image, image_feat_f16, h, masks, others, is_deep_update=True):
+        """
+        image: batch, channels, H, W # first frame of each seq in batch
+        image_feat_f16: batch, 1024, H/16, W/16 # corresponding image feature.
+        h: batch, num_objects, 64, H/16, W/16 # tensor of all zeros
+        masks: batch, num_objects, H, W # corresponding masks of first frame of each seq in batch.
+        others: batch, num_objects, H, W # sum of the masks of all objects except for the current one for each i in num_objects
+        """
         # image_feat_f16 is the feature from the key encoder
         if not self.single_object:
-            g = torch.stack([masks, others], 2)
+            g = torch.stack([masks, others], 2) # B, num_objects, 2, H, W
         else:
             g = masks.unsqueeze(2)
-        g = self.distributor(image, g)
+        g = self.distributor(image, g) # B, num_objects, 3+(1 or 2), H, W if 'cat'
 
         batch_size, num_objects = g.shape[:2]
-        g = g.flatten(start_dim=0, end_dim=1)
+        g = g.flatten(start_dim=0, end_dim=1) # (B*num_objects, C, H, W)
 
         g = self.conv1(g)
         g = self.bn1(g) # 1/2, 64
@@ -154,19 +160,19 @@ class KeyEncoder(nn.Module):
     def __init__(self):
         super().__init__()
         network = resnet.resnet50(pretrained=True)
-        self.conv1 = network.conv1
+        self.conv1 = network.conv1 # H*W*3 -> H/2 * W/2* 64
         self.bn1 = network.bn1
-        self.relu = network.relu  # 1/2, 64
-        self.maxpool = network.maxpool
+        self.relu = network.relu  
+        self.maxpool = network.maxpool # H/2 * W/2 * 64 -> H/4 * W/4 * 64
 
-        self.res2 = network.layer1 # 1/4, 256
-        self.layer2 = network.layer2 # 1/8, 512
-        self.layer3 = network.layer3 # 1/16, 1024
+        self.res2 = network.layer1 # H/4 * W/4 * 64 -> H/4 * W/4 * 256
+        self.layer2 = network.layer2 # H/4 * W/4 * 256 -> H/8 * W/8 * 512
+        self.layer3 = network.layer3 # H/8 * W/8 * 512 -> H/16 * W/16 * 1024
 
     def forward(self, f):
-        x = self.conv1(f) 
+        x = self.conv1(f) # 1/2, 64
         x = self.bn1(x)
-        x = self.relu(x)   # 1/2, 64
+        x = self.relu(x)   
         x = self.maxpool(x)  # 1/4, 64
         f4 = self.res2(x)   # 1/4, 256
         f8 = self.layer2(f4) # 1/8, 512
@@ -197,8 +203,26 @@ class KeyProjection(nn.Module):
 
         self.key_proj = nn.Conv2d(in_dim, keydim, kernel_size=3, padding=1)
         # shrinkage
+        # * The shrinkage operation is applied to the key feature map after it has been projected from the f16 
+        # feature space. It is computed as the square of the projected key features plus one (self.d_proj(x)**2 + 1).
+        # * This operation is intended to represent the importance or relevance of each spatial location in the 
+        # key feature map. By squaring the projection, the model emphasizes areas with higher values, which can 
+        # be interpreted as more important features for the memory mechanism.
+        # * In the KeyValueMemoryStore, shrinkage is used to weight the affinity in the memory read operation.
+        # This means that when the model is trying to match a query key with stored keys to read from memory,
+        # the shrinkage values influence the matching process, giving more weight to more important features
         self.d_proj = nn.Conv2d(in_dim, 1, kernel_size=3, padding=1)
+
         # selection
+        # *The selection operation is computed using a sigmoid activation function on the projected key 
+        # features (torch.sigmoid(self.e_proj(x))).
+        # * This operation produces a binary selection mask over the key feature map, indicating which 
+        # features should be attended to. The sigmoid function ensures that the output is between 0 and 1, 
+        # which can be interpreted as the probability of each feature being selected.
+        # * In the KeyValueMemoryStore, selection can be used to selectively enhance or suppress features 
+        # during the memory read operation. It acts as a gating mechanism that allows the model to focus 
+        # on certain features while ignoring others, which is particularly useful in tasks where only 
+        # certain parts of the frame are relevant for the current prediction.
         self.e_proj = nn.Conv2d(in_dim, keydim, kernel_size=3, padding=1)
 
         nn.init.orthogonal_(self.key_proj.weight.data)

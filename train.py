@@ -33,11 +33,16 @@ if raw_config['benchmark']:
     torch.backends.cudnn.benchmark = True
 
 # Get current git info
-repo = git.Repo(".")
-git_info = str(repo.active_branch)+' '+str(repo.head.commit.hexsha)
+# repo = git.Repo(".")
+# git_info = str(repo.active_branch)+' '+str(repo.head.commit.hexsha)
 
-local_rank = torch.distributed.get_rank()
-world_size = torch.distributed.get_world_size()
+if torch.cuda.device_count() > 1 :
+    local_rank = torch.distributed.get_rank()
+    world_size = torch.distributed.get_world_size()
+else:
+    local_rank = 0
+    world_size = 1
+
 torch.cuda.set_device(local_rank)
 
 print(f'I am rank {local_rank} in this world of size {world_size}!')
@@ -89,6 +94,18 @@ for si, stage in enumerate(stages_to_perform):
     else:
         # Construct model for other ranks
         model = XMemTrainer(config, local_rank=local_rank, world_size=world_size).train()
+    if config['exp_id'].lower() != 'null':
+            print('I will take the role of logging!')
+            long_id = '%s_%s' % (datetime.datetime.now().strftime('%b%d_%H.%M.%S'), config['exp_id'])
+    else:
+        long_id = None
+    logger = TensorboardLogger(config['exp_id'], long_id)
+    logger.log_string('hyperpara', str(config))
+
+    model = XMemTrainer(config, logger=logger, 
+                        save_path=path.join('saves', long_id, long_id) if long_id is not None else None,
+                        ).train()
+    
 
     # Load pertrained model if needed
     if raw_config['load_checkpoint'] is not None:

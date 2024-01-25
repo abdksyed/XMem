@@ -20,7 +20,7 @@ def fix_width_trunc(x):
     return ('{:.9s}'.format('{:0.9f}'.format(x)))
 
 class TensorboardLogger:
-    def __init__(self, short_id, id, git_info):
+    def __init__(self, short_id, id): #, git_info):
         self.short_id = short_id
         if self.short_id == 'NULL':
             self.short_id = 'DEBUG'
@@ -42,7 +42,7 @@ class TensorboardLogger:
             log_path = os.path.join('.', 'saves', '%s' % id)
             self.logger = SummaryWriter(log_path)
 
-        self.log_string('git', git_info)
+        # self.log_string('git', git_info)
 
     def log_scalar(self, tag, x, step):
         if self.no_log:

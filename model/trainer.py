@@ -11,6 +11,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+import wandb
+
 from model.network import XMem
 from model.losses import LossComputer
 from util.log_integrator import Integrator
@@ -25,9 +27,11 @@ class XMemTrainer:
         self.deep_update_prob = config['deep_update_prob']
         self.local_rank = local_rank
 
-        self.XMem = nn.parallel.DistributedDataParallel(
-            XMem(config).cuda(), 
-            device_ids=[local_rank], output_device=local_rank, broadcast_buffers=False)
+        # self.XMem = nn.parallel.DistributedDataParallel(
+        #     XMem(config).cuda(), 
+        #     device_ids=[local_rank], output_device=local_rank, broadcast_buffers=False)
+
+        self.XMem = XMem(config).cuda()
 
         # Set up logger when local_rank=0
         self.logger = logger
@@ -62,19 +66,26 @@ class XMemTrainer:
                 data[k] = v.cuda(non_blocking=True)
 
         out = {}
-        frames = data['rgb']
-        first_frame_gt = data['first_frame_gt'].float()
-        b = frames.shape[0]
-        num_filled_objects = [o.item() for o in data['info']['num_objects']]
-        num_objects = first_frame_gt.shape[2]
-        selector = data['selector'].unsqueeze(2).unsqueeze(2)
+        frames = data['rgb'] # (batch, num_frames, 3, H, W)
+        first_frame_gt = data['first_frame_gt'].float() # (batch, 1, max_num_obj, H, W)
+        b = frames.shape[0] # batch size
+        num_filled_objects = [o.item() for o in data['info']['num_objects']] # list of actual num_objects in each sequence
+        num_objects = first_frame_gt.shape[2] # max_num_obj
+        selector = data['selector'].unsqueeze(2).unsqueeze(2) # (batch, max_num_obj, 1, 1)
 
         with torch.cuda.amp.autocast(enabled=self.config['amp']):
-            # image features never change, compute once
+            # image features never change, compute once for entire batch
+
+            # key: (batch*num_frames, key_dim, H/16, W/16)
+            # shrinkage: (batch*num_frames, 1, H/16, W/16)
+            # selection: (batch*num_frames, key_dim, H/16, W/16)
+            # f16: (batch*num_frames, 1024, H/16, W/16)
+            # f8: (batch*num_frames, 512, H/8, W/8)
+            # f4: (batch*num_frames, 256, H/4, W/4)
             key, shrinkage, selection, f16, f8, f4 = self.XMem('encode_key', frames)
 
-            filler_one = torch.zeros(1, dtype=torch.int64)
-            hidden = torch.zeros((b, num_objects, self.config['hidden_dim'], *key.shape[-2:]))
+            filler_one = torch.zeros(1, dtype=torch.int64) # tensor([0])
+            hidden = torch.zeros((b, num_objects, self.config['hidden_dim'], *key.shape[-2:])) # (batch, num_objects, hidden_dim, H/16, W/16)
             v16, hidden = self.XMem('encode_value', frames[:,0], f16[:,0], hidden, first_frame_gt[:,0])
             values = v16.unsqueeze(3) # add the time dimension
 
@@ -166,6 +177,7 @@ class XMemTrainer:
         model_path = f'{self.save_path}_{it}.pth'
         torch.save(self.XMem.module.state_dict(), model_path)
         print(f'Network saved to {model_path}.')
+        wandb.save(model_path)
 
     def save_checkpoint(self, it):
         if self.save_path is None:

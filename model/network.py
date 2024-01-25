@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 
 from model.aggregate import aggregate
-from model.modules import *
+from model.modules import KeyEncoder, ValueEncoder, KeyProjection, Decoder
 from model.memory_util import *
 
 
@@ -21,12 +21,18 @@ class XMem(nn.Module):
         map_location is for converting models saved in cuda to cpu
         """
         super().__init__()
+        # set the key_dim, value_dim and hidden_dim from given weights or use default.
         model_weights = self.init_hyperparameters(config, model_path, map_location)
 
+        # I am assuming, sinlge_object is only when its stage 0, which means static images
         self.single_object = config.get('single_object', False)
         print(f'Single object mode: {self.single_object}')
 
+        # ResNet50, with  outputs of 3 different scales
+        # 1/16(1024 channels), 1/8(512 channels), 1/4(256 channels)
         self.key_encoder = KeyEncoder()
+
+        # ResNet18, with input channels of 4 if single object else 5
         self.value_encoder = ValueEncoder(self.value_dim, self.hidden_dim, self.single_object)
 
         # Projection from f16 feature space to key/value space
@@ -40,11 +46,14 @@ class XMem(nn.Module):
     def encode_key(self, frame, need_sk=True, need_ek=True): 
         # Determine input shape
         if len(frame.shape) == 5:
-            # shape is b*t*c*h*w
+            # shape is b*t*c*h*w (Batch, NumFrames, Channels, Height, Width)
             need_reshape = True
             b, t = frame.shape[:2]
             # flatten so that we can feed them into a 2D CNN
-            frame = frame.flatten(start_dim=0, end_dim=1)
+            # Each batch B containing T frames when flattened will become
+            # a batch of B*T frames. Since Conv is parallel across batch.
+            # it will treat each frame as a separate image and process on it.
+            frame = frame.flatten(start_dim=0, end_dim=1) # (B*T, C, H, W)
         elif len(frame.shape) == 4:
             # shape is b*c*h*w
             need_reshape = False
@@ -70,6 +79,12 @@ class XMem(nn.Module):
         return key, shrinkage, selection, f16, f8, f4
 
     def encode_value(self, frame, image_feat_f16, h16, masks, is_deep_update=True): 
+        """
+        frames: batch, channels, H, W # first frame of each seq in batch
+        image_feat_f16: batch, 1024, H/16, W/16 # corresponding image feature.
+        h16: batch, num_objects, 64, H/16, W/16 # tensor of all zeros
+        masks: batch, 1, max_num_obj, H, W # corresponding masks of first frame of each seq in batch.
+        """
         num_objects = masks.shape[1]
         if num_objects != 1:
             others = torch.cat([
@@ -143,13 +158,13 @@ class XMem(nn.Module):
             # load the model and key/value/hidden dimensions with some hacks
             # config is updated with the loaded parameters
             model_weights = torch.load(model_path, map_location=map_location)
-            self.key_dim = model_weights['key_proj.key_proj.weight'].shape[0]
-            self.value_dim = model_weights['value_encoder.fuser.block2.conv2.weight'].shape[0]
+            self.key_dim = model_weights['key_proj.key_proj.weight'].shape[0] # default:64
+            self.value_dim = model_weights['value_encoder.fuser.block2.conv2.weight'].shape[0] # default:512
             self.disable_hidden = 'decoder.hidden_update.transform.weight' not in model_weights
             if self.disable_hidden:
                 self.hidden_dim = 0
             else:
-                self.hidden_dim = model_weights['decoder.hidden_update.transform.weight'].shape[0]//3
+                self.hidden_dim = model_weights['decoder.hidden_update.transform.weight'].shape[0]//3 # default:64
             print(f'Hyperparameters read from the model weights: '
                     f'C^k={self.key_dim}, C^v={self.value_dim}, C^h={self.hidden_dim}')
         else:

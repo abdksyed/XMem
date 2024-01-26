@@ -25,15 +25,15 @@ class Config():
     num_workers: int = 8
     max_num_obj: int = 10
 
-    s3_batch_size: int = 4
-    s3_end_warm: int = 700
-    s3_finetune: int = 0
-    s3_iterations: int = 4_000
-    s3_lr: float = 1e-5
-    s3_num_frames: int = 6
-    s3_num_ref_frames: int = 3
-    s3_start_warm: int = 200
-    s3_steps: List = field(default_factory=lambda: [3000])
+    batch_size: int = 4
+    end_warm: int = 700
+    finetune: int = 0
+    iterations: int = 4_000
+    lr: float = 1e-5
+    num_frames: int = 6
+    num_ref_frames: int = 3
+    start_warm: int = 200
+    steps: List = field(default_factory=lambda: [3000])
 
     save_checkpoint_interval: int = 10_000
     save_network_interval: int = 250

@@ -20,7 +20,7 @@ from model.trainer import XMemTrainer
 from dataset import SurgDataset, im_mean
 
 from util.plotter import plotDatasetSample
-
+from util.logger import TensorboardLogger
 from util.configuration import Config
 
 
@@ -77,10 +77,14 @@ def main(exp_id:str):
     )
     f = plotDatasetSample(sample_dataset, 5)
 
+    git_info = 'XMem'
+    id = config.exp_id
+    logger = TensorboardLogger(git_info, id)
+    logger.log_string('hyperpara', str(asdict(config)))
 
     model = XMemTrainer(
         asdict(config),
-        logger=None,
+        logger=logger,
         save_path=path.join("saves", config.exp_id),
         local_rank=local_rank,
         world_size=world_size,

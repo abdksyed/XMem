@@ -78,7 +78,7 @@ class TensorboardLogger:
             return
         x = x.transpose((2, 0, 1))
         self.logger.add_image(tag, x, step)
-        # wandb.log({tag: [wandb.Image(x, caption=tag)], "step": step})
+        # wandb.log({tag: [wandb.Image(x, caption=tag)], "step": step}) # TODO: (3,H,W) not supported by wandb
 
     def log_seg(self, tag, x, step):
         if self.no_log:
@@ -105,5 +105,5 @@ class TensorboardLogger:
             warnings.warn('Logging has been disabled.')
             return
         self.logger.add_text(tag, x)
-        # wandb.log({tag: x})
+        # wandb.log({tag: x}) # TODO: Check how to add string text to wandb
         

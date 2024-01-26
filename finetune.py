@@ -1,6 +1,7 @@
 from os import path
 import math
 from pathlib import Path
+from dataclasses import asdict
 
 import typer
 
@@ -38,7 +39,7 @@ def main(exp_id:str):
     config.exp_id = exp_id
     wandb.init(project="XMem", name=config.exp_id, config=config)
 
-    if config["benchmark"]:
+    if config.benchmark:
         torch.backends.cudnn.benchmark = True
 
     local_rank = torch.distributed.get_rank()
@@ -65,6 +66,10 @@ def main(exp_id:str):
         train_videos,
         train_masks,
         max_jump=10,
+        all_imgt = [
+            transforms.Compose([transforms.Resize((384,384))]),
+            transforms.Compose([transforms.Resize((384,384))])
+            ],
         subset={"seq_20"},
         num_frames=8,
         max_num_obj=10,
@@ -74,7 +79,7 @@ def main(exp_id:str):
 
 
     model = XMemTrainer(
-        config,
+        asdict(config),
         logger=None,
         save_path=path.join("saves", config.exp_id),
         local_rank=local_rank,
@@ -165,7 +170,7 @@ def main(exp_id:str):
         masks_path,
         max_skip,
         subset,
-        max_num_obj=config["max_num_obj"],
+        max_num_obj=config.max_num_obj,
         finetune=True,
     ):
         dataset = SurgDataset(
@@ -177,7 +182,7 @@ def main(exp_id:str):
             all_im = all_im,
             all_imgt = all_imgt,
             subset=subset,
-            num_frames=config["num_frames"],
+            num_frames=config.num_frames,
             max_num_obj=max_num_obj,
             finetune=finetune,
         )
@@ -187,9 +192,9 @@ def main(exp_id:str):
         )
         train_loader = DataLoader(
             dataset,
-            config["batch_size"],
+            config.batch_size,
             sampler=train_sampler,
-            num_workers=config["num_workers"],
+            num_workers=config.num_workers,
             worker_init_fn=worker_init_fn,
             drop_last=True,
             pin_memory=True,
@@ -210,18 +215,18 @@ def main(exp_id:str):
 
     train_sampler, train_loader = renew_loader(train_videos, train_masks, 20, subset = train_subset, finetune=False)
 
-    total_epoch = math.ceil(config['iterations']/len(train_loader))
+    total_epoch = math.ceil(config.iterations/len(train_loader))
     current_epoch = total_iter // len(train_loader)
     print(f'Current epoch is {current_epoch}.')
     print(f'We approximately use {total_epoch} epochs.')
 
-    change_skip_iter = [round(config['iterations']*f) for f in increase_skip_fraction]
+    change_skip_iter = [round(config.iterations*f) for f in increase_skip_fraction]
     # Skip will only change after an epoch, not in the middle
     print(f'The skip value will change approximately at the following iterations: {change_skip_iter[:-1]}')
 
     np.random.seed(np.random.randint(2**30-1) + local_rank*100)
     try:
-        while total_iter < config['iterations']:
+        while total_iter < config.iterations:
             
             # Crucial for randomness! 
             train_sampler.set_epoch(current_epoch)
@@ -245,10 +250,11 @@ def main(exp_id:str):
                 model.do_pass(data, total_iter)
                 total_iter += 1
 
-                if total_iter >= config['iterations']:
+                if total_iter >= config.iterations:
                     break
     finally:
             model.save_network(total_iter)
+            print("Done")
 
     distributed.destroy_process_group()
 

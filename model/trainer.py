@@ -27,11 +27,11 @@ class XMemTrainer:
         self.deep_update_prob = config['deep_update_prob']
         self.local_rank = local_rank
 
-        # self.XMem = nn.parallel.DistributedDataParallel(
-        #     XMem(config).cuda(), 
-        #     device_ids=[local_rank], output_device=local_rank, broadcast_buffers=False)
+        self.XMem = nn.parallel.DistributedDataParallel(
+            XMem(config).cuda(), 
+            device_ids=[local_rank], output_device=local_rank, broadcast_buffers=False)
 
-        self.XMem = XMem(config).cuda()
+        # self.XMem = XMem(config).cuda()
 
         # Set up logger when local_rank=0
         self.logger = logger

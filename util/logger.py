@@ -8,6 +8,7 @@ import warnings
 import torchvision.transforms as transforms
 from torch.utils.tensorboard import SummaryWriter
 
+import wandb
 
 def tensor_to_numpy(image):
     image_np = (image.numpy() * 255).astype('uint8')
@@ -49,6 +50,7 @@ class TensorboardLogger:
             warnings.warn('Logging has been disabled.')
             return
         self.logger.add_scalar(tag, x, step)
+        wandb.log({tag: x, "step": step})
 
     def log_metrics(self, l1_tag, l2_tag, val, step, f=None):
         tag = l1_tag + '/' + l2_tag
@@ -58,6 +60,7 @@ class TensorboardLogger:
             f.write(text + '\n')
             f.flush()
         self.log_scalar(tag, val, step)
+        wandb.log({tag: val, "step": step})
 
     def log_im(self, tag, x, step):
         if self.no_log:
@@ -67,6 +70,7 @@ class TensorboardLogger:
         x = self.inv_im_trans(x)
         x = tensor_to_numpy(x)
         self.logger.add_image(tag, x, step)
+        wandb.log({tag: [wandb.Image(x, caption=tag)], "step": step})
 
     def log_cv2(self, tag, x, step):
         if self.no_log:
@@ -74,6 +78,7 @@ class TensorboardLogger:
             return
         x = x.transpose((2, 0, 1))
         self.logger.add_image(tag, x, step)
+        # wandb.log({tag: [wandb.Image(x, caption=tag)], "step": step})
 
     def log_seg(self, tag, x, step):
         if self.no_log:
@@ -83,6 +88,7 @@ class TensorboardLogger:
         x = self.inv_seg_trans(x)
         x = tensor_to_numpy(x)
         self.logger.add_image(tag, x, step)
+        wandb.log({tag: [wandb.Image(x, caption=tag)], "step": step})
 
     def log_gray(self, tag, x, step):
         if self.no_log:
@@ -91,6 +97,7 @@ class TensorboardLogger:
         x = detach_to_cpu(x)
         x = tensor_to_numpy(x)
         self.logger.add_image(tag, x, step)
+        wandb.log({tag: [wandb.Image(x, caption=tag)], "step": step})
 
     def log_string(self, tag, x):
         print(tag, x)
@@ -98,4 +105,5 @@ class TensorboardLogger:
             warnings.warn('Logging has been disabled.')
             return
         self.logger.add_text(tag, x)
+        # wandb.log({tag: x})
         

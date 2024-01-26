@@ -1,8 +1,49 @@
 from argparse import ArgumentParser
-
+from dataclasses import dataclass, field
+from typing import List
 
 def none_or_default(x, default):
     return x if x is not None else default
+
+
+@dataclass
+class Config():
+    benchmark: bool = False
+    debug: bool = False
+    deep_update_prob: float = 0.2
+    exp_id: str = 'NULL'
+    gamma: float = 0.1
+    hidden_dim: int = 64
+    key_dim: int = 64
+    load_checkpoint: str = None
+    load_network: str = None
+
+    log_image_interval: int = 100
+    log_text_interval: int = 50
+
+    amp: bool = True
+    num_workers: int = 8
+    max_num_obj: int = 10
+
+    s3_batch_size: int = 4
+    s3_end_warm: int = 700
+    s3_finetune: int = 0
+    s3_iterations: int = 4_000
+    s3_lr: float = 1e-5
+    s3_num_frames: int = 6
+    s3_num_ref_frames: int = 3
+    s3_start_warm: int = 200
+    s3_steps: List = field(default_factory=lambda: [3000])
+
+    save_checkpoint_interval: int = 10_000
+    save_network_interval: int = 250
+
+    stages: str = '3'
+
+    value_dim: int = 512
+    weight_decay: float = 0.05
+    
+
 
 class Configuration():
     def parse(self, unknown_arg_ok=False):

@@ -53,8 +53,6 @@ def main(exp_id:str):
     np.random.seed(14159265)
     random.seed(14159265)
 
-    DATASET_TYPE = "endo"
-
     main_folder = Path("../data")
     VIDEOS_PATH = main_folder / "frames"
     MASKS_PATH = main_folder / "masks"
@@ -210,10 +208,10 @@ def main(exp_id:str):
 
     increase_skip_fraction = [0.1, 0.3, 0.9, 100]
 
-    TEST_PATIENTS = set(["seq_17", "seq_18", "seq_19", "seq_20", ])
+    TEST_PATIENTS = set(["p05", "p11"])
     train_subset = set()
     for folder in train_videos.iterdir():
-        pat_name = folder.name if DATASET_TYPE=="endo" else folder.name.split('_')[0]
+        pat_name = folder.name
         if not pat_name in TEST_PATIENTS:
             train_subset.add(folder.name)
 

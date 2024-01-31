@@ -20,6 +20,8 @@ from torchvision.transforms import InterpolationMode
 from torchmetrics.functional.classification import binary_jaccard_index, multiclass_jaccard_index
 from torchmetrics.functional import dice
 
+import wandb
+
 from model.network import XMem
 
 from dataset.range_transform import im_normalization
@@ -69,8 +71,8 @@ test_masks = MASKS_PATH/"all_masks"
 
 def getIoU(pred_frames, path_dicts, video=True, og_frames = None, save_path=None, num_obj=1):
     
-    IoU = torch.zeros(len(pred_frames), num_obj)
-    dice_ = torch.zeros(len(pred_frames), num_obj)
+    IoU = torch.zeros(len(pred_frames))
+    dice_ = torch.zeros(len(pred_frames))
     overlaid_images = {}
     # get the first mask frame from pred_frames dictionary and get its shape
     _,h,w = pred_frames[list(pred_frames.keys())[0]].shape # [0]:first key
@@ -97,9 +99,8 @@ def getIoU(pred_frames, path_dicts, video=True, og_frames = None, save_path=None
 
         if num_obj > 1:
             # Have to give background too as num_classes, and in output ignoring background by doing [1:]
-            IoU[i] = multiclass_jaccard_index(torch_mask, truth_mask, num_classes=num_obj+1, average=None, ignore_index=0)[1:]
-            dice_score = dice(torch_mask, truth_mask, num_classes=num_obj+1, average=None, ignore_index=0)[1:]
-            dice_[i] = dice_score.masked_fill(dice_score.isnan(), 0)
+            IoU[i] = multiclass_jaccard_index(torch_mask, truth_mask, num_classes=num_obj+1, average='micro', ignore_index=0)
+            dice_[i] = dice(torch_mask, truth_mask, num_classes=num_obj+1, average='micro', ignore_index=0)
         else:
             IoU[i] = binary_jaccard_index(torch_mask, truth_mask)
             dice_[i] = dice(torch_mask, truth_mask)
@@ -108,8 +109,8 @@ def getIoU(pred_frames, path_dicts, video=True, og_frames = None, save_path=None
     print("All Present Classes:", classes_present)
     print("All Predicted Classes:", classes_predicted)
 
-    meanIoU = IoU.mean(dim=0) # Mean across num of frames
-    meanDice = dice_.mean(dim=0)
+    meanIoU = IoU.mean() # Mean across num of frames
+    meanDice = dice_.mean()
     
     return meanIoU, IoU, meanDice, dice, overlaid_images
 
@@ -187,6 +188,7 @@ def firstMaskGT(mask_files):
 def doInference(network_path, config, sorted_paths, size = -1, video=False):
     overallIoU = []
     overallDice = []
+    epoch_num = network_path.name.split("_")[-1].split(".")[0]
     for pat_name, sorted_paths_dict in sorted_paths.items():
     
         # Clearing GPU Cache
@@ -215,8 +217,11 @@ def doInference(network_path, config, sorted_paths, size = -1, video=False):
                                  video=video, og_frames = frames, save_path=save_path,
                                  num_obj = NUM_OBJECTS)
         
+        
         print(f"Video \"{pat_name}\", mean IoU is: {IoU*100}")
+        wandb.log({pat_name: IoU*100, "epoch": epoch_num})
         print(f"Video \"{pat_name}\", mean dice is: {dice*100}")
+        wandb.log({pat_name: dice*100, "epoch": epoch_num})
 
         # Convert to Video
         if video:
@@ -232,7 +237,9 @@ def doInference(network_path, config, sorted_paths, size = -1, video=False):
         gc.collect()
     
     print(f"Average IoU over all videos is: {sum(overallIoU)/len(overallIoU)}.")
+    wandb.log({"mIoU": sum(overallIoU)/len(overallIoU), "epoch": epoch_num})
     print(f"Average Dice over all videos is: {sum(overallDice)/len(overallDice)}.")
+    wandb.log({"mDice": sum(overallDice)/len(overallDice), "epoch": epoch_num})
 
     return overallIoU, overallDice
 
@@ -250,12 +257,33 @@ def generate_paths(video_folder_path, mask_folder_path, test_patients=None):
 
     return sorted_paths
 
-def main(network_path, test_pat="seq_17"):
+def main():
+
+    runs_map = {
+        "RandResize": "plakhsa-mgh/XMem/nxo78a1e",
+        "ColorJitter": "plakhsa-mgh/XMem/23eqyeq0",
+        "RandAffine": "plakhsa-mgh/XMem/pup4r0wj",
+        "RandResizeColor": "plakhsa-mgh/XMem/un32opn7",
+        "RandResizeAffine": "plakhsa-mgh/XMem/rd2lhnrw",
+        "RandAffineColor": "plakhsa-mgh/XMem/e2r4x4q4",
+        "RandResizeColorAffine": "plakhsa-mgh/XMem/499xpw3u"
+    }
+
+    test_pat = ["seq_17", "seq_18", "seq_19", "seq_20"]
     TEST_PATIENTS = set([test_pat])
     sorted_paths = generate_paths(test_videos, test_masks, test_patients = TEST_PATIENTS)
-    overallIoU, overallDice = doInference(network_path, config, sorted_paths, size = 384)
 
+    for run_name, path in runs_map.items():
+        entity, project, run_id = path.split('/')
+        wandb.init(project=project, entity=entity, id=run_id, resume='allow')
+        # loop through all pth files in folder f"./augs/{run_name}/saves/"
+        for pth_file in Path(f"./augs/{run_name}/saves/").iterdir():
+            if not pth_file.suffix == ".pth":
+                continue
+            network_path = pth_file
+            overallIoU, overallDice = doInference(network_path, config, sorted_paths, size = 384)
 
 
 if __name__ == "__main__":
-    typer.run(main)
+    # typer.run(main)
+    main()

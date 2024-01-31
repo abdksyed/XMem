@@ -37,6 +37,7 @@ def main(exp_id:str):
     # Load configuration
     config = Config()
     config.exp_id = exp_id
+    config.max_num_obj = 1
     wandb.init(project="XMem", name=config.exp_id, config=config)
 
     if config.benchmark:
@@ -70,7 +71,7 @@ def main(exp_id:str):
             ],
         subset={"seq_20"},
         num_frames=8,
-        max_num_obj=10,
+        max_num_obj=config.max_num_obj,
         finetune=False,
     )
     f = plotDatasetSample(sample_dataset, 5)

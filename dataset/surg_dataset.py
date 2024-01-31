@@ -51,7 +51,7 @@ class SurgDataset(Dataset):
                     continue
             
             # List frames in each video directory
-            frames = sorted(os.listdir(os.path.join(self.im_root, vid)))
+            frames = sorted(os.listdir(os.path.join(self.gt_root, vid)))
             
             if len(frames) < num_frames:
                 continue

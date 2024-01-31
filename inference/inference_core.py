@@ -1,3 +1,5 @@
+import torch
+
 from inference.memory_manager import MemoryManager
 from model.network import XMem
 from model.aggregate import aggregate
@@ -39,6 +41,7 @@ class InferenceCore:
         # self.all_labels = [l.item() for l in all_labels]
         self.all_labels = all_labels
 
+    @torch.inference_mode()
     def step(self, image, mask=None, valid_labels=None, end=False):
         # image: 3*H*W
         # mask: num_objects*H*W or None

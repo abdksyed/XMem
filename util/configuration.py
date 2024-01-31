@@ -23,7 +23,7 @@ class Config():
 
     amp: bool = True
     num_workers: int = 8
-    max_num_obj: int = 10
+    max_num_obj: int = 1
 
     batch_size: int = 4
     end_warm: int = 700

@@ -37,7 +37,7 @@ def main(exp_id:str):
     # Load configuration
     config = Config()
     config.exp_id = exp_id
-    config.max_num_obj = 1
+    config.max_num_obj = 6 # EndoVis17 Type Segmentation
     wandb.init(project="XMem", name=config.exp_id, config=config)
 
     if config.benchmark:
@@ -58,8 +58,8 @@ def main(exp_id:str):
     VIDEOS_PATH = main_folder / "frames"
     MASKS_PATH = main_folder / "masks"
 
-    train_videos = VIDEOS_PATH
-    train_masks = MASKS_PATH / "all_masks"
+    train_videos = VIDEOS_PATH/"train"
+    train_masks = MASKS_PATH/"train"/"type_masks"
 
     sample_dataset = SurgDataset(
         train_videos,
@@ -69,7 +69,7 @@ def main(exp_id:str):
             transforms.Compose([transforms.Resize((384,384))]),
             transforms.Compose([transforms.Resize((384,384))])
             ],
-        subset={"seq_20"},
+        subset={"instrument_dataset_01"},
         num_frames=8,
         max_num_obj=config.max_num_obj,
         finetune=False,
@@ -209,7 +209,7 @@ def main(exp_id:str):
 
     increase_skip_fraction = [0.1, 0.3, 0.9, 100]
 
-    TEST_PATIENTS = set(["p05", "p11"])
+    TEST_PATIENTS = set([])
     train_subset = set()
     for folder in train_videos.iterdir():
         pat_name = folder.name

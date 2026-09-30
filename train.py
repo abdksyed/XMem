@@ -13,7 +13,7 @@ from model.trainer import XMemTrainer
 from dataset.static_dataset import StaticTransformDataset
 from dataset.vos_dataset import VOSDataset
 
-from util.logger import TensorboardLogger
+from util.logger import TensorboardLogger, WandbLogger
 from util.configuration import Configuration
 from util.load_subset import load_sub_davis, load_sub_yv
 
@@ -33,8 +33,8 @@ if raw_config['benchmark']:
     torch.backends.cudnn.benchmark = True
 
 # Get current git info
-# repo = git.Repo(".")
-# git_info = str(repo.active_branch)+' '+str(repo.head.commit.hexsha)
+repo = git.Repo(".")
+git_info = str(repo.active_branch)+' '+str(repo.head.commit.hexsha)
 
 if torch.cuda.device_count() > 1 :
     local_rank = torch.distributed.get_rank()
@@ -61,7 +61,7 @@ for si, stage in enumerate(stages_to_perform):
     stage_config = raw_config.get_stage_parameters(stage)
     config = dict(**raw_config.args, **stage_config)
     if config['exp_id'] != 'NULL':
-        config['exp_id'] = config['exp_id']+'_s%s'%stages[:si+1]
+        config['exp_id'] = config['exp_id']+ f'_s{stages[:si+1]}'
 
     config['single_object'] = (stage == '0')
 
@@ -81,10 +81,11 @@ for si, stage in enumerate(stages_to_perform):
         # Logging
         if config['exp_id'].lower() != 'null':
             print('I will take the role of logging!')
-            long_id = '%s_%s' % (datetime.datetime.now().strftime('%b%d_%H.%M.%S'), config['exp_id'])
+            long_id = f"{datetime.datetime.now().strftime('%b%d_%H.%M.%S')}_{config['exp_id']}"
         else:
             long_id = None
-        logger = TensorboardLogger(config['exp_id'], long_id, git_info)
+        # logger = TensorboardLogger(config['exp_id'], long_id, git_info)
+        logger = WandbLogger(config['exp_id'], long_id)
         logger.log_string('hyperpara', str(config))
 
         # Construct the rank 0 model
@@ -96,7 +97,7 @@ for si, stage in enumerate(stages_to_perform):
         model = XMemTrainer(config, local_rank=local_rank, world_size=world_size).train()
     if config['exp_id'].lower() != 'null':
             print('I will take the role of logging!')
-            long_id = '%s_%s' % (datetime.datetime.now().strftime('%b%d_%H.%M.%S'), config['exp_id'])
+            long_id = f"{datetime.datetime.now().strftime('%b%d_%H.%M.%S')}_{config['exp_id']}"
     else:
         long_id = None
     logger = TensorboardLogger(config['exp_id'], long_id)

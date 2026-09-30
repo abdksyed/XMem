@@ -1,6 +1,7 @@
 import os
 import sys
 import gc
+import shutil
 
 import typer
 
@@ -58,7 +59,7 @@ torch.cuda.empty_cache()
 
 COLOR = (3, 192, 60)
 
-NUM_OBJECTS = 1 # Binary Segmentation
+# NUM_OBJECTS = 1 # Binary Segmentation
 
 DATASET_TYPE = "endo"
 main_folder = Path("../data")
@@ -66,7 +67,7 @@ VIDEOS_PATH = main_folder/"frames"
 MASKS_PATH = main_folder/"masks"
 
 test_videos = VIDEOS_PATH
-test_masks = MASKS_PATH/"all_masks"
+test_masks = MASKS_PATH # /"all_masks"
 
 
 def getIoU(pred_frames, path_dicts, video=True, og_frames = None, save_path=None, num_obj=1):
@@ -185,18 +186,17 @@ def firstMaskGT(mask_files):
     return None, -1
 
 
-def doInference(network_path, config, sorted_paths, size = -1, video=False):
+def doInference(network_path, config, sorted_paths, num_obj = 1, size = -1, video=False, run = None):
     overallIoU = []
     overallDice = []
-    epoch_num = network_path.name.split("_")[-1].split(".")[0]
+    epoch_num = int(network_path.name.split("_")[-1].split(".")[0])
     for pat_name, sorted_paths_dict in sorted_paths.items():
     
         # Clearing GPU Cache
         torch.cuda.empty_cache()
         network = XMem(config, network_path).eval().to(device)
         processor = InferenceCore(network, config=config)
-        NUM_OBJECTS = 11
-        processor.set_all_labels(range(1, NUM_OBJECTS+1))
+        processor.set_all_labels(range(1, num_obj+1))
 
         image_files = [img_path for img_path, _ in sorted_paths_dict.values()]
         mask_files = [mask_path for _, mask_path in sorted_paths_dict.values()]
@@ -207,7 +207,7 @@ def doInference(network_path, config, sorted_paths, size = -1, video=False):
     
         print(f"Running Inference on {pat_name}...")
         frames, predictions = singleVideoInference(image_files[start_idx:], mask,
-                                                  processor, size = size, num_obj = NUM_OBJECTS)
+                                                  processor, size = size, num_obj = num_obj)
         save_path = None
         if video:
             save_path = Path(f"./pred_masks/{pat_name}")
@@ -215,13 +215,14 @@ def doInference(network_path, config, sorted_paths, size = -1, video=False):
             
         IoU, _, dice, _, overlaid_images = getIoU(predictions, sorted_paths_dict,
                                  video=video, og_frames = frames, save_path=save_path,
-                                 num_obj = NUM_OBJECTS)
+                                 num_obj = num_obj)
         
         
         print(f"Video \"{pat_name}\", mean IoU is: {IoU*100}")
-        wandb.log({pat_name: IoU*100, "epoch": epoch_num})
         print(f"Video \"{pat_name}\", mean dice is: {dice*100}")
-        wandb.log({pat_name: dice*100, "epoch": epoch_num})
+        if run is not None:
+            run.log({f"infer/{pat_name}_iou": IoU*100, f"infer/epoch": epoch_num})
+            run.log({f"infer/{pat_name}_dice": dice*100, f"infer/epoch": epoch_num})
 
         # Convert to Video
         if video:
@@ -237,9 +238,10 @@ def doInference(network_path, config, sorted_paths, size = -1, video=False):
         gc.collect()
     
     print(f"Average IoU over all videos is: {sum(overallIoU)/len(overallIoU)}.")
-    wandb.log({"mIoU": sum(overallIoU)/len(overallIoU), "epoch": epoch_num})
     print(f"Average Dice over all videos is: {sum(overallDice)/len(overallDice)}.")
-    wandb.log({"mDice": sum(overallDice)/len(overallDice), "epoch": epoch_num})
+    if run is not None:
+        wandb.log({f"infer/mIoU": sum(overallIoU)/len(overallIoU), f"infer/epoch": epoch_num})
+        wandb.log({f"infer/mDice": sum(overallDice)/len(overallDice), f"infer/epoch": epoch_num})
 
     return overallIoU, overallDice
 
@@ -257,33 +259,52 @@ def generate_paths(video_folder_path, mask_folder_path, test_patients=None):
 
     return sorted_paths
 
-def main():
+def main(NUM_OBJECTS:int = 1):
 
     runs_map = {
-        "RandResize": "plakhsa-mgh/XMem/nxo78a1e",
-        "ColorJitter": "plakhsa-mgh/XMem/23eqyeq0",
-        "RandAffine": "plakhsa-mgh/XMem/pup4r0wj",
-        "RandResizeColor": "plakhsa-mgh/XMem/un32opn7",
-        "RandResizeAffine": "plakhsa-mgh/XMem/rd2lhnrw",
-        "RandAffineColor": "plakhsa-mgh/XMem/e2r4x4q4",
-        "RandResizeColorAffine": "plakhsa-mgh/XMem/499xpw3u"
+        "RandResize": "plakhsa-mgh/XMem/qae878sk",
+        "ColorJitter": "plakhsa-mgh/XMem/0945fdap",
+        "RandAffine": "plakhsa-mgh/XMem/d3dcns9o",
+        "RandResizeColor": "plakhsa-mgh/XMem/tlfp70jc",
+        "RandResizeAffine": "plakhsa-mgh/XMem/mwjb9kxv",
+        "RandAffineColor": "plakhsa-mgh/XMem/1d1os0pw",
+        "RandResizeColorAffine": "plakhsa-mgh/XMem/dnq7bn44"
     }
-
-    test_pat = ["seq_17", "seq_18", "seq_19", "seq_20"]
-    TEST_PATIENTS = set([test_pat])
+    IoUs = {}
+    dice = {}
+    test_pat = set(["p05", "p11"])
+    TEST_PATIENTS = set(test_pat)
     sorted_paths = generate_paths(test_videos, test_masks, test_patients = TEST_PATIENTS)
 
     for run_name, path in runs_map.items():
         entity, project, run_id = path.split('/')
-        wandb.init(project=project, entity=entity, id=run_id, resume='allow')
+        run = wandb.init(project=project, entity=entity, id=run_id, resume=True)
         # loop through all pth files in folder f"./augs/{run_name}/saves/"
-        for pth_file in Path(f"./augs/{run_name}/saves/").iterdir():
-            if not pth_file.suffix == ".pth":
+        paths = []
+        for network_path in Path(f"./augs/{run_name}/saves/").iterdir():
+            if not network_path.suffix == ".pth":
                 continue
-            network_path = pth_file
-            overallIoU, overallDice = doInference(network_path, config, sorted_paths, size = 384)
+            paths.append(network_path)
+        network_paths = sorted(paths, key = lambda x: int(x.name.split('_')[-1].split('.')[0]))
+        for network_path in network_paths:
+            print(network_path)
+            overallIoU, overallDice = doInference(network_path, config, sorted_paths,
+                                                  num_obj=NUM_OBJECTS, size = 384, run = run)
+            IoUs[network_path.name] = sum(overallIoU)/len(overallIoU)
+            dice[network_path.name] = sum(overallDice)/len(overallDice)
+        
+        best_epoch_name, best_IoU = sorted(IoUs.items(), key=lambda x: x[1], reverse=True)[0]
+        print(f"Best IoU for {run_name} is {best_IoU} at epoch {best_epoch_name}.")
+        run.log({f"infer/best_iou": best_IoU})
+        best_dice = dice[best_epoch_name]
+        print(f"Best Dice for {run_name} is {best_dice} at epoch {best_epoch_name}.")
+        run.log({f"infer/best_dice": best_dice})
+
+        shutil.copy2(f"./augs/{run_name}/saves/{best_epoch_name}", "./saves/best.pth")
+        run.save("./saves/best.pth")
+
+        run.finish()
 
 
 if __name__ == "__main__":
-    # typer.run(main)
-    main()
+    typer.run(main)

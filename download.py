@@ -2,13 +2,13 @@ import wandb
 import os
 
 runs_map = {
-        "RandResize": "plakhsa-mgh/XMem/nxo78a1e",
-        "ColorJitter": "plakhsa-mgh/XMem/23eqyeq0",
-        "RandAffine": "plakhsa-mgh/XMem/pup4r0wj",
-        "RandResizeColor": "plakhsa-mgh/XMem/un32opn7",
-        "RandResizeAffine": "plakhsa-mgh/XMem/rd2lhnrw",
-        "RandAffineColor": "plakhsa-mgh/XMem/e2r4x4q4",
-        "RandResizeColorAffine": "plakhsa-mgh/XMem/499xpw3u"
+        "RandResize": "plakhsa-mgh/XMem/qae878sk",
+        "ColorJitter": "plakhsa-mgh/XMem/0945fdap",
+        "RandAffine": "plakhsa-mgh/XMem/d3dcns9o",
+        "RandResizeColor": "plakhsa-mgh/XMem/tlfp70jc",
+        "RandResizeAffine": "plakhsa-mgh/XMem/mwjb9kxv",
+        "RandAffineColor": "plakhsa-mgh/XMem/1d1os0pw",
+        "RandResizeColorAffine": "plakhsa-mgh/XMem/dnq7bn44"
     }
 
 for k,v in runs_map.items():
